@@ -17,7 +17,7 @@ function makeRawClient() {
 }
 
 export function registerTools(server: McpServer) {
-  const { client, weblinks } = getContext();
+  const { client, weblinks, filters } = getContext();
   const raw = makeRawClient();
 
   server.tool(
@@ -553,6 +553,37 @@ export function registerTools(server: McpServer) {
     async ({ issueKey }) => {
       const summary = await client.devStatus.getSummary(issueKey);
       return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+    }
+  );
+
+  // --- Filters ---
+
+  server.tool(
+    "jira_get_filter",
+    "Get filter metadata by ID — returns JQL, name, view URL, and owner. Use this to resolve https://jira.example.com/issues/?filter=NNNNN links.",
+    { filterId: z.string().describe("The filter ID (e.g., 10806)") },
+    async ({ filterId }) => {
+      const info = await filters.get(filterId);
+      return { content: [{ type: "text", text: JSON.stringify(info, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "jira_get_filter_issues",
+    "Get filter metadata AND matching issues in a single call. Resolves a filter ID to its JQL and executes the search.",
+    {
+      filterId: z.string().describe("The filter ID (e.g., 10806)"),
+      maxResults: z.number().default(50).describe("Maximum issues to return"),
+    },
+    async ({ filterId, maxResults }) => {
+      const info = await filters.get(filterId);
+      const results = await client.issues.search({ jql: info.jql, maxResults });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ filter: info, issues: results.issues ?? results }, null, 2),
+        }],
+      };
     }
   );
 }
