@@ -1,0 +1,46 @@
+{
+  "name": "@leilashellroot/jira-data-center-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Jira Server/Data Center — issue management, weblinks, agile, worklogs, and context aggregation",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "jira-data-center-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "jira",
+    "data-center",
+    "model-context-protocol",
+    "weblinks",
+    "agile",
+    "atlassian"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leilashellroot/jira-data-center-mcp.git"
+  },
+  "license": "MIT",
+  "author": "",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "jira-data-center-client": "^1.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
