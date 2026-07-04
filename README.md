@@ -119,6 +119,8 @@ npx @leilashellroot/jira-data-center-mcp
 | `jira_get_components` | Get project components |
 | `jira_get_create_meta` | Get issue creation metadata |
 | `jira_get_dev_status` | Get development info |
+| `jira_get_filter` | Resolve filter ID to JQL, name, view URL |
+| `jira_get_filter_issues` | Get filter metadata + matching issues |
 
 ## Requirements
 
