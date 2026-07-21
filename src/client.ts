@@ -25,9 +25,10 @@ export interface RemoteLinkCreated {
 export class WebLinksApi {
   private client: AxiosInstance;
 
-  constructor(baseUrl: string, token: string) {
+  constructor(baseUrl: string, token: string, timeout: number = 30_000) {
     this.client = axios.create({
       baseURL: `${baseUrl}/rest/api/2`,
+      timeout,
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -77,9 +78,10 @@ export interface FilterInfo {
 export class FiltersApi {
   private client: AxiosInstance;
 
-  constructor(baseUrl: string, token: string) {
+  constructor(baseUrl: string, token: string, timeout: number = 30_000) {
     this.client = axios.create({
       baseURL: `${baseUrl}/rest/api/2`,
+      timeout,
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -115,9 +117,13 @@ export function getContext(): AppContext {
   if (_ctx) return _ctx;
   const config = loadConfig();
   _ctx = {
-    client: new JiraClient({ baseUrl: config.baseUrl, token: config.token }),
-    weblinks: new WebLinksApi(config.baseUrl, config.token),
-    filters: new FiltersApi(config.baseUrl, config.token),
+    client: new JiraClient({
+      baseUrl: config.baseUrl,
+      token: config.token,
+      axiosConfig: { timeout: config.requestTimeoutMs },
+    }),
+    weblinks: new WebLinksApi(config.baseUrl, config.token, config.requestTimeoutMs),
+    filters: new FiltersApi(config.baseUrl, config.token, config.requestTimeoutMs),
   };
   return _ctx;
 }

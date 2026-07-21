@@ -5,10 +5,10 @@ import { getContext } from "./client.js";
 import { getIssueContext } from "./context.js";
 import { loadConfig } from "./config.js";
 
-function makeRawClient() {
-  const config = loadConfig();
+function makeRawClient(config: ReturnType<typeof loadConfig>) {
   return axios.create({
     baseURL: `${config.baseUrl}/rest/api/2`,
+    timeout: config.requestTimeoutMs,
     headers: {
       Authorization: `Bearer ${config.token}`,
       "Content-Type": "application/json",
@@ -17,18 +17,28 @@ function makeRawClient() {
 }
 
 export function registerTools(server: McpServer) {
+  const config = loadConfig();
   const { client, weblinks, filters } = getContext();
-  const raw = makeRawClient();
+  const raw = makeRawClient(config);
 
   server.tool(
     "jira_get_issue",
     "Get details of a specific Jira issue by its key (e.g., PROJ-123)",
-    { issueKey: z.string().describe("The Jira issue key (e.g., PROJ-123)") },
-    async ({ issueKey }) => {
+    {
+      issueKey: z.string().describe("The Jira issue key (e.g., PROJ-123)"),
+      fields: z.union([z.string(), z.array(z.string())]).optional()
+        .describe("Fields to return. Defaults to a compact issue field set."),
+      expand: z.string().optional()
+        .describe("Comma-separated sections to expand, such as renderedFields, changelog, or transitions"),
+    },
+    async ({ issueKey, fields, expand }) => {
       const issue = await client.issues.get({
         issueKeyOrId: issueKey,
-        fields: "*all",
-        expand: "renderedFields,names,schema,changelog",
+        fields: fields ?? [
+          "summary", "description", "status", "assignee", "reporter", "priority",
+          "issuetype", "labels", "updated", "parent", "subtasks",
+        ],
+        expand,
       });
       return { content: [{ type: "text", text: JSON.stringify(issue, null, 2) }] };
     }
@@ -49,12 +59,21 @@ export function registerTools(server: McpServer) {
     'Search for Jira issues using JQL (Jira Query Language). Examples: "project = PROJ AND status = Open", "assignee = currentUser() AND status != Done"',
     {
       jql: z.string().describe("JQL query string to search for issues"),
-      maxResults: z.number().default(50).describe("Maximum number of results to return (default: 50)"),
+      maxResults: z.number().optional().describe("Maximum number of results to return (default: configured page size)"),
+      startAt: z.number().optional().describe("Index of the first result to return"),
+      fields: z.array(z.string()).optional().describe("Issue field names to include in the response"),
+      expand: z.string().optional().describe("Additional response sections to expand"),
     },
-    async ({ jql, maxResults }) => {
-      const result = await client.issues.search({ jql, maxResults });
+    async ({ jql, maxResults, startAt, fields, expand }) => {
+      const result = await client.issues.search({
+        jql,
+        maxResults: maxResults ?? config.defaultPageSize,
+        startAt,
+        fields,
+        expand,
+      });
       return {
-        content: [{ type: "text", text: JSON.stringify(result.issues ?? result, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
     }
   );
@@ -98,20 +117,23 @@ export function registerTools(server: McpServer) {
       issueKey: z.string().describe("The Jira issue key to update"),
       summary: z.string().optional().describe("New summary/title for the issue"),
       description: z.string().optional().describe("New description for the issue"),
+      issueTypeId: z.string().optional().describe("New issue type ID"),
       assignee: z.string().optional().describe("Username to assign the issue to"),
       priority: z.string().optional().describe("New priority level"),
       labels: z.array(z.string()).optional().describe("New array of labels"),
       customFields: z.record(z.unknown()).optional().describe("Map of additional Jira custom field values"),
+      update: z.record(z.unknown()).optional().describe("Jira update operations, for example labels add/remove or a comment"),
     },
-    async ({ issueKey, summary, description, assignee, priority, labels, customFields }) => {
+    async ({ issueKey, summary, description, issueTypeId, assignee, priority, labels, customFields, update }) => {
       const fields: Record<string, unknown> = {};
-      if (summary) fields.summary = summary;
+      if (summary !== undefined) fields.summary = summary;
       if (description !== undefined) fields.description = description;
+      if (issueTypeId) fields.issuetype = { id: issueTypeId };
       if (assignee) fields.assignee = { name: assignee };
       if (priority) fields.priority = { name: priority };
       if (labels) fields.labels = labels;
       if (customFields) Object.assign(fields, customFields);
-      await client.issues.update({ issueKeyOrId: issueKey, fields });
+      await client.issues.update({ issueKeyOrId: issueKey, fields, update });
       const issue = await client.issues.get({ issueKeyOrId: issueKey, fields: "*all" });
       return {
         content: [{ type: "text", text: `Successfully updated issue ${issue.key}\n\n${JSON.stringify(issue, null, 2)}` }],
@@ -176,11 +198,22 @@ export function registerTools(server: McpServer) {
   server.tool(
     "jira_get_comments",
     "Get all comments from a Jira issue",
-    { issueKey: z.string().describe("The Jira issue key") },
-    async ({ issueKey }) => {
-      const res = await raw.get(`/issue/${issueKey}/comment`);
+    {
+      issueKey: z.string().describe("The Jira issue key"),
+      expand: z.string().optional().describe("Optional comment expansions, such as renderedBody"),
+      maxResults: z.number().optional().describe("Maximum comments to return"),
+      startAt: z.number().optional().describe("Index of the first comment to return"),
+    },
+    async ({ issueKey, expand, maxResults, startAt }) => {
+      const res = await raw.get(`/issue/${issueKey}/comment`, {
+        params: {
+          expand,
+          maxResults: maxResults ?? config.defaultPageSize,
+          startAt,
+        },
+      });
       return {
-        content: [{ type: "text", text: JSON.stringify(res.data.comments ?? res.data, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
       };
     }
   );
@@ -277,9 +310,18 @@ export function registerTools(server: McpServer) {
       issueKey: z.string().describe("The Jira issue key"),
       transitionId: z.string().describe("The transition ID (from jira_get_transitions)"),
       comment: z.string().optional().describe("Optional comment to add during the transition"),
+      fields: z.record(z.unknown()).optional().describe("Fields required by the transition screen"),
+      customFields: z.record(z.unknown()).optional()
+        .describe("Additional Jira transition payload, such as update operations"),
     },
-    async ({ issueKey, transitionId, comment }) => {
-      await client.issues.transition({ issueKeyOrId: issueKey, transitionId, comment });
+    async ({ issueKey, transitionId, comment, fields, customFields }) => {
+      const payload: Record<string, unknown> = {
+        transition: { id: transitionId },
+      };
+      if (fields) payload.fields = fields;
+      if (comment) payload.update = { comment: [{ add: { body: comment } }] };
+      if (customFields) Object.assign(payload, customFields);
+      await raw.post(`/issue/${issueKey}/transitions`, payload);
       return { content: [{ type: "text", text: `Successfully transitioned ${issueKey}` }] };
     }
   );
@@ -548,11 +590,22 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "jira_get_dev_status",
-    "Get development information (branches, commits, pull requests) linked to a Jira issue",
-    { issueKey: z.string().describe("The Jira issue key or ID") },
-    async ({ issueKey }) => {
-      const summary = await client.devStatus.getSummary(issueKey);
-      return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+    "Get development information linked to a Jira issue. Returns a summary by default, or detailed pull requests, repositories, or branches when detail is true.",
+    {
+      issueKey: z.string().describe("The Jira issue key or ID"),
+      detail: z.boolean().default(false).describe("Return detailed development entries instead of summary"),
+      dataType: z.enum(["pullrequest", "repository", "branch"]).default("pullrequest")
+        .describe("Detailed data to fetch when detail is true"),
+      applicationType: z.enum(["stash", "bitbucket", "github", "githube"]).default("stash")
+        .describe("Linked source-control provider when detail is true"),
+    },
+    async ({ issueKey, detail, dataType, applicationType }) => {
+      const issue = await client.issues.get({ issueKeyOrId: issueKey, fields: ["id"] });
+      const issueId = issue.id;
+      const result = detail
+        ? await client.devStatus.getDetail(issueId, dataType, applicationType)
+        : await client.devStatus.getSummary(issueId);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
   );
 

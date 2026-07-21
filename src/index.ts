@@ -4,8 +4,14 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { registerTools } from "./tools.js";
 import { loadConfig } from "./config.js";
 import { startRemoteServer } from "./remote.js";
+import { runSetup } from "./setup.js";
 
 async function main() {
+  if (process.argv[2] === "setup") {
+    await runSetup(process.argv.slice(3));
+    return;
+  }
+
   const config = loadConfig();
 
   if (config.transport !== "stdio") {

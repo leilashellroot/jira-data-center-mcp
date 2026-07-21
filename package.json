@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test test/remote.test.mjs",
+    "test": "npm run build && node --test test/*.test.mjs",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build"
   },
@@ -37,6 +37,7 @@
   "author": "",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "axios": "^1.18.1",
     "jira-data-center-client": "^1.0.0",
     "zod": "^3.22.0"
   },
