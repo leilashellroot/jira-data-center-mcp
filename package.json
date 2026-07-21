@@ -13,6 +13,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "test": "npm run build && node --test test/remote.test.mjs",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build"
   },

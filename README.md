@@ -75,6 +75,56 @@ npx @leilashellroot/jira-data-center-mcp
 }
 ```
 
+### Remote SSE
+
+Start the server with the legacy SSE transport:
+
+```bash
+MCP_TRANSPORT=sse MCP_HOST=0.0.0.0 MCP_PORT=3000 npx @leilashellroot/jira-data-center-mcp
+```
+
+Connect an SSE-compatible MCP client to `http://localhost:3000/sse`. The client will receive the POST endpoint from the SSE `endpoint` event.
+
+### Remote Streamable HTTP
+
+Start the current MCP remote transport:
+
+```bash
+MCP_TRANSPORT=streamable-http MCP_HOST=0.0.0.0 MCP_PORT=3000 npx @leilashellroot/jira-data-center-mcp
+```
+
+Connect a Streamable HTTP MCP client to `http://localhost:3000/mcp`.
+
+For OpenCode or Cursor, use a remote server entry instead of a local command:
+
+```json
+{
+  "mcp": {
+    "jira": {
+      "type": "remote",
+      "url": "http://localhost:3000/mcp",
+      "enabled": true
+    }
+  }
+}
+```
+
+Remote configuration variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_TRANSPORT` | `stdio` | `stdio`, `sse`, or `streamable-http` |
+| `MCP_HOST` | `127.0.0.1` | HTTP bind host; use `0.0.0.0` for network access |
+| `MCP_PORT` | `3000` | HTTP port |
+| `MCP_HTTP_PATH` | `/mcp` | Streamable HTTP endpoint |
+| `MCP_SSE_PATH` | `/sse` | SSE connection endpoint |
+| `MCP_MESSAGES_PATH` | `/messages` | SSE message POST endpoint |
+| `MCP_ALLOWED_HOSTS` | unset | Comma-separated Host values for DNS rebinding protection |
+| `MCP_ALLOWED_ORIGINS` | unset | Comma-separated Origin values for DNS rebinding protection |
+| `MCP_CORS_ORIGIN` | unset | Optional `Access-Control-Allow-Origin` value |
+
+When binding beyond localhost, put the server behind authentication and HTTPS. The Jira PAT is used by the server for every connected client.
+
 ## Tools
 
 | Tool | Description |

@@ -3,9 +3,17 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerTools } from "./tools.js";
 import { loadConfig } from "./config.js";
+import { startRemoteServer } from "./remote.js";
 
-function main() {
+async function main() {
   const config = loadConfig();
+
+  if (config.transport !== "stdio") {
+    await startRemoteServer(config);
+    const endpoint = config.transport === "sse" ? config.ssePath : config.httpPath;
+    console.error(`Jira Data Center MCP ${config.transport} server listening at http://${config.host}:${config.port}${endpoint}`);
+    return;
+  }
 
   const server = new McpServer(
     {
@@ -18,12 +26,12 @@ function main() {
   registerTools(server);
 
   const transport = new StdioServerTransport();
-  server.connect(transport).catch((err) => {
-    console.error("Failed to connect transport:", err);
-    process.exit(1);
-  });
+  await server.connect(transport);
 
   console.error(`Jira Data Center MCP running (${config.baseUrl})`);
 }
 
-main();
+main().catch((err) => {
+  console.error("Failed to start MCP server:", err);
+  process.exit(1);
+});
