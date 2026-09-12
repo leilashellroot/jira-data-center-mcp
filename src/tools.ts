@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import axios from "axios";
+import axios, { type AxiosInstance } from "axios";
 import { getContext } from "./client.js";
 import { getIssueContext } from "./context.js";
 import { loadConfig } from "./config.js";
@@ -14,6 +14,52 @@ function makeRawClient(config: ReturnType<typeof loadConfig>) {
       "Content-Type": "application/json",
     },
   });
+}
+
+interface IssueTypeMeta {
+  id: string;
+  name: string;
+  [key: string]: unknown;
+}
+
+export async function getCreateMeta(raw: AxiosInstance, projectKey: string, issueTypeName: string) {
+  const issueTypesResponse = await raw.get(
+    `/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes`,
+    { params: { maxResults: 1000 } },
+  );
+  const issueTypesData = issueTypesResponse.data as unknown;
+  let issueTypes: IssueTypeMeta[] = [];
+  if (Array.isArray(issueTypesData)) {
+    issueTypes = issueTypesData;
+  } else if (issueTypesData && typeof issueTypesData === "object") {
+    const response = issueTypesData as { values?: IssueTypeMeta[]; id?: string; name?: string };
+    issueTypes = response.values ?? (response.id && response.name ? [response as IssueTypeMeta] : []);
+  }
+  const issueType = issueTypes.find((candidate) => candidate.name === issueTypeName);
+
+  if (!issueType) {
+    return { projects: [{ key: projectKey, issuetypes: [] }] };
+  }
+
+  const fieldsResponse = await raw.get(
+    `/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes/${encodeURIComponent(issueType.id)}`,
+    { params: { maxResults: 1000 } },
+  );
+  const fieldsData = fieldsResponse.data as {
+    fields?: Record<string, unknown>;
+    values?: Array<{ fieldId: string; [key: string]: unknown }>;
+    fieldId?: string;
+    [key: string]: unknown;
+  };
+  const fieldList = fieldsData.values ?? (fieldsData.fieldId ? [fieldsData as { fieldId: string }] : []);
+  const fields = fieldsData.fields ?? Object.fromEntries(fieldList.map((field) => [field.fieldId, field]));
+
+  return {
+    projects: [{
+      key: projectKey,
+      issuetypes: [{ ...issueType, fields }],
+    }],
+  };
 }
 
 export function registerTools(server: McpServer) {
@@ -581,7 +627,7 @@ export function registerTools(server: McpServer) {
       issueTypeName: z.string().optional().describe("Issue type name (e.g., 'Bug', 'Task')"),
     },
     async ({ projectKey, issueTypeName }) => {
-      const meta = await client.issues.getCreateMeta({ projectKey, issueTypeName: issueTypeName ?? "Bug" });
+      const meta = await getCreateMeta(raw, projectKey, issueTypeName ?? "Bug");
       return { content: [{ type: "text", text: JSON.stringify(meta, null, 2) }] };
     }
   );
