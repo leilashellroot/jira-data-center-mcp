@@ -81,7 +81,9 @@ test("Streamable HTTP initializes and routes requests by session", async () => {
     });
 
     assert.equal(toolsResponse.status, 200);
-    assert.match(await toolsResponse.text(), /jira_get_issue/);
+    const toolsBody = await toolsResponse.text();
+    assert.match(toolsBody, /jira_get_issue/);
+    assert.match(toolsBody, /jira_download_attachment/);
   } finally {
     await closeServer(server);
   }

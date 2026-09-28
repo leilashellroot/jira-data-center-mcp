@@ -12,8 +12,8 @@ MCP server for Jira Server/Data Center. Connects AI assistants to self-hosted Ji
 - **Agile** — boards, sprints, sprint issues
 - **Worklogs** — get and add worklog entries
 - **Changelog** — view issue change history
-- **Attachments** — get metadata, add files, delete
-- **jira_get_issue_context** — single call that returns everything: summary, description, comments, attachments, issuelinks, weblinks, changelog, parent, subtasks
+- **Attachments** — get metadata, download attachment contents, add files, delete
+- **jira_get_issue_context** — single call that returns issue context and attachment metadata; use `jira_download_attachment` to retrieve attachment contents
 
 ## Installation
 
@@ -187,6 +187,7 @@ When binding beyond localhost, put the server behind authentication and HTTPS. T
 | `jira_add_worklog` | Add a worklog |
 | `jira_get_changelog` | View change history |
 | `jira_get_attachment` | Get attachment metadata |
+| `jira_download_attachment` | Download attachment contents for the model (images as image content, text files as text, other types as embedded resources; 5 MiB default limit, configurable up to 10 MiB) |
 | `jira_add_attachment` | Add a file attachment |
 | `jira_delete_attachment` | Delete an attachment |
 | `jira_get_link_types` | List issue link types |

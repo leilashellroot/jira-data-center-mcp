@@ -5,6 +5,9 @@ import { getContext } from "./client.js";
 import { getIssueContext } from "./context.js";
 import { loadConfig } from "./config.js";
 
+const DEFAULT_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+const MAX_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+
 function makeRawClient(config: ReturnType<typeof loadConfig>) {
   return axios.create({
     baseURL: `${config.baseUrl}/rest/api/2`,
@@ -92,7 +95,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "jira_get_issue_context",
-    "Get comprehensive context for a Jira issue: summary, description, comments, attachments, issuelinks, remote links (weblinks), changelog, parent, and subtasks — all in one call",
+    "Get comprehensive context for a Jira issue: summary, description, comments, attachment metadata, issuelinks, remote links (weblinks), changelog, parent, and subtasks — all in one call. Use jira_download_attachment to retrieve attachment contents.",
     { issueKey: z.string().describe("The Jira issue key (e.g., PROJ-123)") },
     async ({ issueKey }) => {
       const ctx = await getIssueContext(issueKey);
@@ -419,12 +422,107 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "jira_get_attachment",
-    "Get attachment metadata by ID",
+    "Get attachment metadata by ID. Use jira_download_attachment to retrieve the file contents.",
     { attachmentId: z.string().describe("The attachment ID") },
     async ({ attachmentId }) => {
       const att = await client.issues.getAttachment({ attachmentId });
       return { content: [{ type: "text", text: JSON.stringify(att, null, 2) }] };
     }
+  );
+
+  server.tool(
+    "jira_download_attachment",
+    "Download an attachment from Jira and return its contents to the model. Images are returned as MCP image content, text files as text, and other file types as embedded MCP resources. Attachments are limited to 5 MiB by default; maxBytes can raise the limit to 10 MiB.",
+    {
+      attachmentId: z.string().describe("The Jira attachment ID"),
+      maxBytes: z.number().int().positive().max(MAX_ATTACHMENT_MAX_BYTES).optional()
+        .describe("Maximum attachment size in bytes (default 5 MiB, maximum 10 MiB)"),
+    },
+    async ({ attachmentId, maxBytes }) => {
+      const byteLimit = maxBytes ?? DEFAULT_ATTACHMENT_MAX_BYTES;
+
+      try {
+        const attachment = await client.issues.getAttachment({ attachmentId });
+        if (!attachment.content) {
+          throw new Error("Jira did not provide a content URL for this attachment");
+        }
+        if (attachment.size > byteLimit) {
+          throw new Error(
+            `Attachment is ${attachment.size} bytes, exceeding the requested ${byteLimit}-byte limit`,
+          );
+        }
+
+        const jiraOrigin = new URL(config.baseUrl).origin;
+        const downloadUrl = new URL(attachment.content, `${config.baseUrl}/`);
+        if (downloadUrl.origin !== jiraOrigin) {
+          throw new Error("Jira returned an attachment URL on a different host; refusing to send credentials");
+        }
+
+        const response = await raw.get<ArrayBuffer>(downloadUrl.href, {
+          responseType: "arraybuffer",
+          maxContentLength: byteLimit,
+          maxBodyLength: byteLimit,
+          // Do not follow redirects: attachment URLs are expected to be served by this Jira instance.
+          maxRedirects: 0,
+          headers: { Accept: "*/*" },
+        });
+        const bytes = Buffer.from(response.data);
+        if (bytes.byteLength > byteLimit) {
+          throw new Error(`Downloaded attachment exceeds the ${byteLimit}-byte limit`);
+        }
+
+        const mimeType = (attachment.mimeType || "application/octet-stream")
+          .split(";", 1)[0]
+          .trim()
+          .toLowerCase();
+        const filename = attachment.filename || `attachment-${attachmentId}`;
+        const summary = `Downloaded ${filename} (${mimeType}, ${bytes.byteLength} bytes).`;
+
+        if (mimeType.startsWith("image/")) {
+          return {
+            content: [
+              { type: "text", text: summary },
+              { type: "image", data: bytes.toString("base64"), mimeType },
+            ],
+          };
+        }
+
+        const isText = mimeType.startsWith("text/") || [
+          "application/json",
+          "application/xml",
+          "application/javascript",
+          "application/x-yaml",
+          "application/yaml",
+        ].includes(mimeType);
+        if (isText) {
+          return {
+            content: [
+              { type: "text", text: `${summary}\n\n${bytes.toString("utf8")}` },
+            ],
+          };
+        }
+
+        return {
+          content: [
+            { type: "text", text: summary },
+            {
+              type: "resource",
+              resource: {
+                uri: `jira-attachment:${encodeURIComponent(attachmentId)}/${encodeURIComponent(filename)}`,
+                mimeType,
+                blob: bytes.toString("base64"),
+              },
+            },
+          ],
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Unable to download Jira attachment ${attachmentId}: ${message}` }],
+        };
+      }
+    },
   );
 
   server.tool(
